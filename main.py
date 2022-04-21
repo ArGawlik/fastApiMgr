@@ -280,7 +280,7 @@ app.db_connection = None
 @app.on_event("startup")
 async def startup():
     app.db_connection = sqlite3.connect("northwind.db")
-    app.db_connection.text_factory = lambda b: b.decode(errors="ignore")  # northwind specific
+    app.db_connection.text_factory = lambda b: b.decode(errors="ignore", encoding = "ISO 8859-1")  # northwind specific
 
 
 @app.on_event("shutdown")
@@ -393,7 +393,7 @@ async def categories_delete(id: int):
 async def products():
     _products = app.db_connection.execute("SELECT ProductName FROM Products").fetchall()
     return {
-        "products": _products,
+        "products": list(map(lambda x: x[0], _products)),
         "products_counter": len(_products)
     }
 
