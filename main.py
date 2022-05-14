@@ -8,7 +8,6 @@ import hashlib
 import secrets
 import sqlite3
 
-
 app = FastAPI()
 # uvicorn main:app
 app.counter = 0
@@ -36,9 +35,22 @@ class PatientInfo:
 class Category(BaseModel):
     name: str
 
+class Supplier(BaseModel):
+    CompanyName: str
+    ContactName: str
+    ContactTitle: str
+    Address: str
+    City: str
+    Region: str
+    PostalCode: str
+    Country: str
+    Phone: str
+    Fax: str
+    HomePage: str
+
 
 @app.get("/")
-def root():
+def main():
     return {"message": "Hello world!"}
 
 
@@ -105,7 +117,6 @@ def method(request: Request, response: Response):
 
 @app.get("/auth")
 async def auth(response: Response, password: Optional[str] = "", password_hash: Optional[str] = ""):
-
     if password == "" or password_hash == "":
         response.status_code = 401
         return HTMLResponse(status_code=response.status_code)
@@ -129,6 +140,7 @@ def register(patient: Patient, response: Response):
             if sign.isalpha():
                 count += 1
         return count
+
     add_days = letter_count(patient.name) + letter_count(patient.surname)
     vaccination_date = (register_date + timedelta(days=add_days))
 
@@ -270,6 +282,8 @@ def logged_out(format: Optional[str] = ""):
         return HTMLResponse(content="<h1>Logged out!</h1>")
     else:
         return PlainTextResponse("Logged out!")
+
+
 #######################################################
 # 4
 
@@ -280,7 +294,7 @@ app.db_connection = None
 @app.on_event("startup")
 async def startup():
     app.db_connection = sqlite3.connect("northwind.db")
-    app.db_connection.text_factory = lambda b: b.decode(errors="ignore", encoding = "ISO 8859-1")  # northwind specific
+    app.db_connection.text_factory = lambda b: b.decode(errors="ignore", encoding="ISO 8859-1")  # northwind specific
 
 
 @app.on_event("shutdown")
@@ -290,7 +304,8 @@ async def shutdown():
 
 @app.get("/categories")
 async def categories():
-    categories = app.db_connection.execute("SELECT CategoryID, CategoryName FROM Categories ORDER BY CategoryID").fetchall()
+    categories = app.db_connection.execute(
+        "SELECT CategoryID, CategoryName FROM Categories ORDER BY CategoryID").fetchall()
     message = []
     for cat in categories:
         message.append({"id": cat[0], "name": cat[1]})
@@ -299,73 +314,28 @@ async def categories():
     }
 
 
-@app.get("/customers")
-async def customers():
-    customers = app.db_connection.execute("SELECT CustomerID, CompanyName, COALESCE(Address, '') || ' ' || COALESCE(PostalCode,'') || ' ' || COALESCE(City, '') || ' ' || COALESCE(Country, '') FROM Customers ORDER BY LOWER(CustomerID)").fetchall()
-    message = []
-    for cust in customers:
-        message.append({"id": cust[0], "name": cust[1], "full_address": cust[2]})
-    return {"customers": message}
-
-
-@app.get("/products/{id}")
-async def products_id(id: int):
-    all_ids = app.db_connection.execute("SELECT ProductID FROM Products").fetchall()
-    all_ids_list = [identifier for ident_list in all_ids for identifier in ident_list]
-    if id not in all_ids_list:
-        raise HTTPException(status_code=404)
-    product = app.db_connection.execute(f"SELECT ProductID, ProductName FROM Products WHERE ProductID={id}").fetchall()
-    return {"id": product[0][0], "name": product[0][1]}
-
-
-@app.get("/employees")
-async def employees(limit: Optional[int] = 0, offset: Optional[int] = 0, order: Optional[str] = ""):
-    settings = {"limit":"", 'offset':"", "order": ""}
-    order_dict = {"id": "EmployeeID", "last_name": "LastName", "first_name": "FirstName", "city": "City"}
-    if limit > 0:
-        settings["limit"] = f" LIMIT {limit}"
-    if offset > 0:
-        settings["offset"]=f" OFFSET {offset}"
-    if order != "":
-        if order not in list(order_dict.keys()):
-            raise HTTPException(status_code=400)
-        settings["order"] = f" ORDER BY {order_dict[order]}"
-    empls = app.db_connection.execute(f"SELECT EmployeeID, LastName, FirstName, City FROM Employees{settings['order']}{settings['limit']}{settings['offset']}").fetchall()
-    message = []
-    for e in empls:
-        message.append({"id": e[0], "last_name": e[1], "first_name": e[2], "city": e[3]})
-    return {"employees": message}
-
-
-@app.get("/products_extended")
-async def products_extended():
-    products = app.db_connection.execute("SELECT ProductID, ProductName, CategoryName, CompanyName FROM Products JOIN Categories ON Products.CategoryID = Categories.CategoryID JOIN Suppliers ON Products.SupplierID = Suppliers.SupplierID ORDER BY ProductID").fetchall()
-    message = []
-    for product in products:
-        message.append({"id": product[0], "name": product[1], "category": product[2], "supplier": product[3]})
-    return {"products_extended": message}
-
-
-@app.get("/products/{id}/orders")
-async def product_orders(id: int):
-    all_ids = app.db_connection.execute("SELECT ProductID FROM Products").fetchall()
-    all_ids_list = [identifier for ident_list in all_ids for identifier in ident_list]
-    if id not in all_ids_list:
-        raise HTTPException(status_code=404)
-    orders = app.db_connection.execute(f"SELECT Orders.OrderID, CompanyName, Quantity, 'Order Details'.UnitPrice, Discount, 'Order Details'.ProductID FROM Orders JOIN Customers ON Orders.CustomerID = Customers.CustomerID JOIN 'Order Details' ON Orders.OrderID='Order Details'.OrderID WHERE 'Order Details'.ProductID = {id} ORDER BY Orders.OrderID").fetchall()
-    message = []
-    for order in orders:
-        price = order[2]*order[3] * (1-order[4])
-        message.append({"id": order[0], "customer": order[1], "quantity": order[2], "total_price": price.__round__(2)})
-    return {"orders": message}
-
-
 @app.post("/categories", status_code=201)
 async def categories(category: Category):
-    last_id = app.db_connection.execute("SELECT CategoryID FROM Categories ORDER BY CategoryID DESC LIMIT 1").fetchone()[0]
-    app.db_connection.execute(f"INSERT INTO Categories (CategoryID, CategoryName) VALUES ({last_id+1}, '{category.name}');")
-    message = app.db_connection.execute(f"SELECT CategoryID, CategoryName FROM Categories WHERE CategoryID = {last_id+1}").fetchall()
+    last_id = \
+        app.db_connection.execute("SELECT CategoryID FROM Categories ORDER BY CategoryID DESC LIMIT 1").fetchone()[0]
+    app.db_connection.execute(
+        f"INSERT INTO Categories (CategoryID, CategoryName) VALUES ({last_id + 1}, '{category.name}');")
+    message = app.db_connection.execute(
+        f"SELECT CategoryID, CategoryName FROM Categories WHERE CategoryID = {last_id + 1}").fetchall()
     return {"id": message[0][0], "name": message[0][1]}
+
+
+@app.get("/categories/{id}")
+async def get_category_by_id(id: int):
+    categories_id = app.db_connection.execute("SELECT CategoryID FROM Categories").fetchall()
+    categories_id_list = [identifier for ids_list in categories_id for identifier in ids_list]
+    if id not in categories_id_list:
+        raise HTTPException(status_code=404)
+    response = app.db_connection.execute(f"SELECT * FROM Categories WHERE CategoryID = '{id}'").fetchone()
+    return {"Picture:": "",
+            "CategoryID": response[0],
+            "CategoryName:": response[1],
+            "Description:": response[2]}
 
 
 @app.put("/categories/{id}")
@@ -375,7 +345,8 @@ async def categories_update(id: int, category: Category):
     if id not in all_ids_list:
         raise HTTPException(status_code=404)
     app.db_connection.execute(f"UPDATE Categories SET CategoryName = '{category.name}' WHERE CategoryID = {id}")
-    response = app.db_connection.execute(f"SELECT CategoryID, CategoryName FROM Categories WHERE CategoryID = {id}").fetchall()
+    response = app.db_connection.execute(
+        f"SELECT CategoryID, CategoryName FROM Categories WHERE CategoryID = {id}").fetchall()
     return {"id": response[0][0], "name": response[0][1]}
 
 
@@ -389,6 +360,16 @@ async def categories_delete(id: int):
     return {"deleted": 1}
 
 
+@app.get("/customers")
+async def customers():
+    customers = app.db_connection.execute(
+        "SELECT CustomerID, CompanyName, COALESCE(Address, '') || ' ' || COALESCE(PostalCode,'') || ' ' || COALESCE(City, '') || ' ' || COALESCE(Country, '') FROM Customers ORDER BY LOWER(CustomerID)").fetchall()
+    message = []
+    for cust in customers:
+        message.append({"id": cust[0], "name": cust[1], "full_address": cust[2]})
+    return {"customers": message}
+
+
 @app.get("/products")
 async def products():
     _products = app.db_connection.execute("SELECT ProductName FROM Products").fetchall()
@@ -398,9 +379,135 @@ async def products():
     }
 
 
+@app.get("/products/{id}")
+async def products_id(id: int):
+    all_ids = app.db_connection.execute("SELECT ProductID FROM Products").fetchall()
+    all_ids_list = [identifier for ident_list in all_ids for identifier in ident_list]
+    if id not in all_ids_list:
+        raise HTTPException(status_code=404)
+    product = app.db_connection.execute(f"SELECT ProductID, ProductName FROM Products WHERE ProductID={id}").fetchall()
+    return {"id": product[0][0], "name": product[0][1]}
+
+
+@app.get("/customers_details")
+async def get_all_customers():
+    columns = app.db_connection.execute("SELECT name FROM pragma_table_info(\"Customers\")").fetchall()
+    columns = [col[0] for col in columns]
+    print(columns)
+    customers = app.db_connection.execute("SELECT * FROM Customers").fetchall()
+    message = []
+    for custom in customers:
+        i = 0
+        row = {}
+        for col in columns:
+            row[col] = custom[i]
+            i = i + 1
+        message.append(row)
+    return message
+
+
+@app.get("/employees")
+async def employees(limit: Optional[int] = 0, offset: Optional[int] = 0, order: Optional[str] = ""):
+    settings = {"limit": "", 'offset': "", "order": ""}
+    order_dict = {"id": "EmployeeID", "last_name": "LastName", "first_name": "FirstName", "city": "City"}
+    if limit > 0:
+        settings["limit"] = f" LIMIT {limit}"
+    if offset > 0:
+        settings["offset"] = f" OFFSET {offset}"
+    if order != "":
+        if order not in list(order_dict.keys()):
+            raise HTTPException(status_code=400)
+        settings["order"] = f" ORDER BY {order_dict[order]}"
+    empls = app.db_connection.execute(
+        f"SELECT EmployeeID, LastName, FirstName, City FROM Employees{settings['order']}{settings['limit']}{settings['offset']}").fetchall()
+    message = []
+    for e in empls:
+        message.append({"id": e[0], "last_name": e[1], "first_name": e[2], "city": e[3]})
+    return {"employees": message}
+
+
+@app.get("/products/{id}/orders")
+async def product_orders(id: int):
+    all_ids = app.db_connection.execute("SELECT ProductID FROM Products").fetchall()
+    all_ids_list = [identifier for ident_list in all_ids for identifier in ident_list]
+    if id not in all_ids_list:
+        raise HTTPException(status_code=404)
+    orders = app.db_connection.execute(
+        f"SELECT Orders.OrderID, CompanyName, Quantity, 'Order Details'.UnitPrice, Discount, 'Order Details'.ProductID FROM Orders JOIN Customers ON Orders.CustomerID = Customers.CustomerID JOIN 'Order Details' ON Orders.OrderID='Order Details'.OrderID WHERE 'Order Details'.ProductID = {id} ORDER BY Orders.OrderID").fetchall()
+    message = []
+    for order in orders:
+        price = order[2] * order[3] * (1 - order[4])
+        message.append({"id": order[0], "customer": order[1], "quantity": order[2], "total_price": price.__round__(2)})
+    return {"orders": message}
+
+
+@app.get("/products_extended")
+async def products_extended():
+    products = app.db_connection.execute(
+        "SELECT ProductID, ProductName, CategoryName, CompanyName FROM Products JOIN Categories ON Products.CategoryID = Categories.CategoryID JOIN Suppliers ON Products.SupplierID = Suppliers.SupplierID ORDER BY ProductID").fetchall()
+    message = []
+    for product in products:
+        message.append({"id": product[0], "name": product[1], "category": product[2], "supplier": product[3]})
+    return {"products_extended": message}
+
+
+@app.get("/shippers/{shipper_id}")
+async def get_shipper_by_id(shipper_id: int):
+    shipper = app.db_connection.execute(f"SELECT * FROM Shippers WHERE ShipperID = {shipper_id}").fetchone()
+    if shipper is None:
+        raise HTTPException(status_code=404, detail="Shipper not found")
+    return {"ShipperID": shipper[0],
+            "CompanyName": shipper[1],
+            "Phone": shipper[2]}
+
+
+@app.get("/shippers")
+async def get_all_shippers():
+    shippers = app.db_connection.execute(f"SELECT * FROM Shippers").fetchall()
+    message = []
+    for shipper in shippers:
+        message.append({"ShipperID": shipper[0],
+         "CompanyName": shipper[1],
+         "Phone": shipper[2]})
+    return message
+
+
+@app.get("/suppliers")
+async def get_suppliers():
+    suppliers = app.db_connection.execute("SELECT SupplierID, CompanyName FROM Suppliers")
+    return [{"SupplierID": supp[0], "CompanyName": supp[1]} for supp in suppliers]
+
+
+@app.post("/suppliers", status_code=201)
+async def create_supplier(supplier: Supplier):
+    last_id = \
+        app.db_connection.execute("SELECT SupplierID FROM Suppliers ORDER BY SupplierID DESC LIMIT 1").fetchone()[0]
+    app.db_connection.execute(
+        f"INSERT INTO Suppliers (SupplierID, CompanyName, ContactName, ContactTitle, Address, City, Region, PostalCode, Country, Phone, Fax, HomePage) "
+        f"VALUES ({last_id + 1}, '{supplier.CompanyName}', '{supplier.ContactName}', '{supplier.ContactTitle}', '{supplier.Address}', '{supplier.City}', '{supplier.Region}', '{supplier.PostalCode}', '{supplier.Country}', '{supplier.Phone}', '{supplier.Fax}', '{supplier.HomePage}');")
+    message = app.db_connection.execute(
+        f"SELECT * FROM Suppliers WHERE SupplierID = {last_id + 1}").fetchone()
+    return message
+
+
+@app.get("/suppliers/{supplier_id}")
+async def get_suppliers(supplier_id: int):
+    supp = app.db_connection.execute(f"SELECT SupplierID, CompanyName FROM Suppliers WHERE SupplierID = {supplier_id}").fetchone()
+    if supp is None:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    columns = app.db_connection.execute("SELECT name FROM pragma_table_info(\"Suppliers\")").fetchall()
+    columns = [col[0] for col in columns]
+    return zip(columns, supp)
+
+# put supplier
+
+# delete supplier
+
+# get product by supplier
+
+
 @app.get("/test/{ttt}")
 def test(request: Request, ttt: float):
-
     return ttt, request.query_params
 
 
